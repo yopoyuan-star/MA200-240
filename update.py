@@ -91,6 +91,7 @@ tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}summary{{cursor:pointer;
 <p>規則:收盤連續 3 天高於 MA×1.01 → 買進;連續 3 天低於 MA×0.99 → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
+    import os; os.makedirs("docs", exist_ok=True)
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(page)
 
