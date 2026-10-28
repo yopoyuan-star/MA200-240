@@ -1,4 +1,5 @@
-"""抓取台股加權指數與美股三大指數,計算 MA ±1% 通道與連續 3 日訊號,輸出 docs/index.html"""
+"""抓取台股加權指數與美股三大指數,計算 MA 通道(進場 +2%、出場 -1%)與連續 3 日訊號,輸出 docs/index.html"""
+import os
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import yfinance as yf
@@ -11,7 +12,8 @@ INDICES = [
     ("S&P 500", "^GSPC", 240),
     ("那斯達克綜合指數 NASDAQ", "^IXIC", 240),
 ]
-BAND, DAYS, YEARS = 0.01, 3, 3
+UP_BAND, DN_BAND = 0.02, 0.01   # 進場:高於 MA+2%;出場:低於 MA-1%
+DAYS, YEARS = 3, 3
 
 
 def load(sym):
@@ -29,19 +31,19 @@ def streak(flag):
 def analyze(close, n):
     d = pd.DataFrame({"close": close})
     d["ma"] = close.rolling(n).mean()          # 用完整資料算 MA,再截取近三年
-    d["up"], d["dn"] = d.ma * (1 + BAND), d.ma * (1 - BAND)
+    d["up"], d["dn"] = d.ma * (1 + UP_BAND), d.ma * (1 - DN_BAND)
     d["ua"] = streak(d.close > d.up)
     d["ub"] = streak(d.close < d.dn)
     d["signal"] = ""
-    d.loc[d.ua == DAYS, "signal"] = "買進"      # 連續第 3 天站上 MA+1%
+    d.loc[d.ua == DAYS, "signal"] = "買進"      # 連續第 3 天站上 MA+2%
     d.loc[d.ub == DAYS, "signal"] = "賣出"      # 連續第 3 天跌破 MA-1%
     return d[d.index >= d.index[-1] - pd.DateOffset(years=YEARS)]
 
 
 def figure(d, title, n):
     f = go.Figure()
-    f.add_scatter(x=d.index, y=d.up, name=f"MA{n}+1%", line=dict(color="#d9534f", width=1, dash="dot"))
-    f.add_scatter(x=d.index, y=d.dn, name=f"MA{n}-1%", line=dict(color="#2e9e5b", width=1, dash="dot"),
+    f.add_scatter(x=d.index, y=d.up, name=f"MA{n}+{UP_BAND:.0%}", line=dict(color="#d9534f", width=1, dash="dot"))
+    f.add_scatter(x=d.index, y=d.dn, name=f"MA{n}-{DN_BAND:.0%}", line=dict(color="#2e9e5b", width=1, dash="dot"),
                   fill="tonexty", fillcolor="rgba(150,150,150,0.10)")
     f.add_scatter(x=d.index, y=d.ma, name=f"MA{n}", line=dict(color="#f0ad4e", width=1.6))
     f.add_scatter(x=d.index, y=d.close, name="收盤", line=dict(color="#1f77b4", width=1.6))
@@ -55,17 +57,17 @@ def section(name, d, n, first):
     last = d.iloc[-1]
     dev = (last.close / last.ma - 1) * 100
     if last.ua > 0:
-        state = f"已連續 {int(last.ua)} 天站上 MA+1%"
+        state = f"已連續 {int(last.ua)} 天站上 MA+{UP_BAND:.0%}"
     elif last.ub > 0:
-        state = f"已連續 {int(last.ub)} 天跌破 MA-1%"
+        state = f"已連續 {int(last.ub)} 天跌破 MA-{DN_BAND:.0%}"
     else:
-        state = "位於 ±1% 通道內"
+        state = f"位於 MA-{DN_BAND:.0%} ~ MA+{UP_BAND:.0%} 通道內"
     sigs = d[d.signal != ""].iloc[::-1]
     rows = "".join(
         f"<tr class='{'buy' if r.signal == '買進' else 'sell'}'><td>{i:%Y-%m-%d}</td>"
         f"<td>{r.signal}</td><td>{r.close:,.2f}</td><td>{r.ma:,.2f}</td></tr>"
         for i, r in sigs.iterrows()) or "<tr><td colspan=4>近三年無訊號</td></tr>"
-    chart = figure(d, f"{name}(MA{n} ±1%)", n).to_html(
+    chart = figure(d, f"{name}(MA{n} +{UP_BAND:.0%} / -{DN_BAND:.0%})", n).to_html(
         full_html=False, include_plotlyjs="cdn" if first else False)
     return f"""<section><h2>{name}</h2>
 <div class='status'>{d.index[-1]:%Y-%m-%d} 收盤 {last.close:,.2f}|MA{n} {last.ma:,.2f}|乖離 {dev:+.2f}%|<b>{state}</b></div>
@@ -88,10 +90,10 @@ th:first-child,td:first-child{{text-align:left}}tr.buy td:nth-child(2){{color:#d
 tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
 @media(prefers-color-scheme:dark){{body{{background:#14161a;color:#e6e6e6}}.status{{background:#22262d}}td,th{{border-color:#333}}}}</style></head>
 <body><h1>指數 MA 通道與買賣訊號</h1>
-<p>規則:收盤連續 3 天高於 MA×1.01 → 買進;連續 3 天低於 MA×0.99 → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
+<p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
-    import os; os.makedirs("docs", exist_ok=True)
+    os.makedirs("docs", exist_ok=True)
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(page)
 
