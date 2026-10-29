@@ -13,6 +13,7 @@ INDICES = [
     ("道瓊工業指數 DJIA", "^DJI", 240),
     ("S&P 500", "^GSPC", 240),
     ("那斯達克綜合指數 NASDAQ", "^IXIC", 240),
+    ("費城半導體指數 SOX", "^SOX", 240),
 ]
 UP_BAND, DN_BAND = 0.02, 0.01   # 進場:高於 MA+2%;出場:低於 MA-1%
 DAYS, YEARS = 3, 3
