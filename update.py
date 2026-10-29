@@ -19,34 +19,56 @@ DAYS, YEARS = 3, 3
 
 
 def load(sym):
+    """Yahoo 日線 OHLC(未還原)"""
     df = yf.download(sym, period="6y", interval="1d", auto_adjust=False, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    close = df["Close"].dropna()
-    idx = pd.DatetimeIndex(close.index)
-    close.index = (idx.tz_localize(None) if idx.tz is not None else idx).normalize()
-    return close
+    df = df[["Open", "High", "Low", "Close"]].dropna()
+    idx = pd.DatetimeIndex(df.index)
+    df.index = (idx.tz_localize(None) if idx.tz is not None else idx).normalize()
+    return df[(df > 0).all(axis=1)]
 
 
-def patch_twse(close):
-    """Yahoo 的 ^TWII 偶爾晚一天更新;用證交所官方「每日市場成交資訊」補上缺的最新交易日(失敗就略過)"""
+TWSE_URLS = ["https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date={d}&response=json",
+             "https://www.twse.com.tw/indicesReport/MI_5MINS_HIST?response=json&date={d}"]
+
+
+def twse_ohlc(months=3):
+    """證交所加權指數每日開高低收(最近 months 個月);失敗回傳空表"""
+    now = datetime.now(timezone(timedelta(hours=8)))
+    first, parts = now.replace(day=1), []
     try:
-        now = datetime.now(timezone(timedelta(hours=8)))
-        add = {}
-        for dt in (now.replace(day=1) - timedelta(days=1), now):          # 上個月 + 本月
-            url = f"https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date={dt:%Y%m}01"
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            data = json.load(urllib.request.urlopen(req, timeout=20))
-            for row in data.get("data", []):
-                y, m, d = row[0].split("/")                                 # 民國年 115/10/28
-                add[pd.Timestamp(int(y) + 1911, int(m), int(d))] = float(row[4].replace(",", ""))
-        new = pd.Series({k: v for k, v in add.items() if k > close.index[-1]}, dtype=float)
-        if len(new):
-            print("以證交所資料補上:", ", ".join(f"{k:%Y-%m-%d}={v:,.2f}" for k, v in new.items()))
-            close = pd.concat([close, new]).sort_index()
+        for k in range(months):
+            dt = (first - timedelta(days=31 * k)).replace(day=1)
+            js = None
+            for u in TWSE_URLS:
+                try:
+                    req = urllib.request.Request(u.format(d=f"{dt:%Y%m}01"), headers={"User-Agent": "Mozilla/5.0"})
+                    js = json.load(urllib.request.urlopen(req, timeout=30))
+                    break
+                except Exception as e:
+                    err = e
+            if js is None:
+                raise RuntimeError(err)
+            if js.get("stat") != "OK" or not js.get("data"):
+                continue
+            f = js["fields"]
+            col = lambda key: next(i for i, n in enumerate(f) if key in n)
+            ci, co, ch, cl, cc = col("日期"), col("開盤"), col("最高"), col("最低"), col("收盤")
+            num = lambda v: float(str(v).replace(",", ""))
+            rows = {}
+            for r in js["data"]:
+                y, m, d = str(r[ci]).strip().split("/")                      # 民國年 115/10/28
+                rows[pd.Timestamp(int(y) + 1911, int(m), int(d))] = (num(r[co]), num(r[ch]), num(r[cl]), num(r[cc]))
+            parts.append(pd.DataFrame.from_dict(rows, orient="index", columns=["Open", "High", "Low", "Close"]))
+        if not parts:
+            return pd.DataFrame(columns=["Open", "High", "Low", "Close"])
+        out = pd.concat(parts).sort_index()
+        out = out[~out.index.duplicated(keep="last")]
+        return out[(out > 0).all(axis=1) & (out.High >= out.Low)]
     except Exception as e:
-        print("證交所補資料失敗(略過):", e)
-    return close
+        print("證交所抓取失敗(改用 Yahoo):", e)
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close"])
 
 
 def streak(flag):
@@ -79,7 +101,7 @@ def figure(d, title, n):
     return f
 
 
-def section(name, d, n, first):
+def section(name, d, n, first, ohlc, src):
     last = d.iloc[-1]
     dev = (last.close / last.ma - 1) * 100
     if last.ua > 0:
@@ -93,22 +115,30 @@ def section(name, d, n, first):
         f"<tr class='{'buy' if r.signal == '買進' else 'sell'}'><td>{i:%Y-%m-%d}</td>"
         f"<td>{r.signal}</td><td>{r.close:,.2f}</td><td>{r.ma:,.2f}</td></tr>"
         for i, r in sigs.iterrows()) or "<tr><td colspan=4>近三年無訊號</td></tr>"
+    o_rows = "".join(f"<tr><td>{i:%Y-%m-%d}</td><td>{r.Open:,.2f}</td><td>{r.High:,.2f}</td><td>{r.Low:,.2f}</td><td>{r.Close:,.2f}</td></tr>"
+                     for i, r in ohlc.tail(7).iterrows())
     chart = figure(d, f"{name}(MA{n} +{UP_BAND:.0%} / -{DN_BAND:.0%})", n).to_html(
         full_html=False, include_plotlyjs="cdn" if first else False)
     return f"""<section><h2>{name}</h2>
 <div class='status'>{d.index[-1]:%Y-%m-%d} 收盤 {last.close:,.2f}|MA{n} {last.ma:,.2f}|乖離 {dev:+.2f}%|<b>{state}</b></div>
 {chart}
 <details open><summary>買賣訊號(共 {len(sigs)} 筆,新到舊)</summary>
-<table><tr><th>日期</th><th>訊號</th><th>收盤</th><th>MA</th></tr>{rows}</table></details></section>"""
+<table><tr><th>日期</th><th>訊號</th><th>收盤</th><th>MA</th></tr>{rows}</table></details>
+<h3>近 7 個交易日 開高低收(由舊到新|資料來源:{src})</h3>
+<table><tr><th>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th></tr>{o_rows}</table></section>"""
 
 
 def main():
     secs = []
     for i, (name, sym, n) in enumerate(INDICES):
-        close = load(sym)
-        if sym == "^TWII":
-            close = patch_twse(close)
-        secs.append(section(name, analyze(close, n), n, i == 0))
+        ohlc, src = load(sym), "Yahoo Finance"
+        if sym == "^TWII":                                   # 台股以證交所為主:證交所有的日期一律覆蓋 Yahoo
+            tw = twse_ohlc()
+            if len(tw):
+                ohlc = pd.concat([ohlc[~ohlc.index.isin(tw.index)], tw]).sort_index()
+                src = "臺灣證券交易所"
+                print("證交所資料:", f"{tw.index[0]:%Y-%m-%d} ~ {tw.index[-1]:%Y-%m-%d}")
+        secs.append(section(name, analyze(ohlc["Close"], n), n, i == 0, ohlc, src))
     now = datetime.now(timezone(timedelta(hours=8)))
     page = f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>指數 MA 通道與訊號</title>
@@ -116,11 +146,11 @@ def main():
 section{{margin-bottom:40px}}.status{{background:#f4f6f8;padding:8px 12px;border-radius:6px;font-size:14px}}
 table{{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}}th,td{{padding:5px 10px;border-bottom:1px solid #e3e3e3;text-align:right}}
 th:first-child,td:first-child{{text-align:left}}tr.buy td:nth-child(2){{color:#d9534f;font-weight:700}}
-tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
+tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}h3{{margin:18px 0 0;font-size:15px}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
 @media(prefers-color-scheme:dark){{body{{background:#14161a;color:#e6e6e6}}.status{{background:#22262d}}td,th{{border-color:#333}}}}</style></head>
 <body><h1>指數 MA 通道與買賣訊號</h1>
 <p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
-更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:Yahoo Finance|僅供參考,非投資建議。</p>
+更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
     os.makedirs("docs", exist_ok=True)
     with open("docs/index.html", "w", encoding="utf-8") as f:
