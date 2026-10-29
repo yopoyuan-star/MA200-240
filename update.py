@@ -1,5 +1,7 @@
 """抓取台股加權指數與美股三大指數,計算 MA 通道(進場 +2%、出場 -1%)與連續 3 日訊號,輸出 docs/index.html"""
+import json
 import os
+import urllib.request
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import yfinance as yf
@@ -20,7 +22,31 @@ def load(sym):
     df = yf.download(sym, period="6y", interval="1d", auto_adjust=False, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    return df["Close"].dropna()
+    close = df["Close"].dropna()
+    idx = pd.DatetimeIndex(close.index)
+    close.index = (idx.tz_localize(None) if idx.tz is not None else idx).normalize()
+    return close
+
+
+def patch_twse(close):
+    """Yahoo 的 ^TWII 偶爾晚一天更新;用證交所官方「每日市場成交資訊」補上缺的最新交易日(失敗就略過)"""
+    try:
+        now = datetime.now(timezone(timedelta(hours=8)))
+        add = {}
+        for dt in (now.replace(day=1) - timedelta(days=1), now):          # 上個月 + 本月
+            url = f"https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date={dt:%Y%m}01"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            data = json.load(urllib.request.urlopen(req, timeout=20))
+            for row in data.get("data", []):
+                y, m, d = row[0].split("/")                                 # 民國年 115/10/28
+                add[pd.Timestamp(int(y) + 1911, int(m), int(d))] = float(row[4].replace(",", ""))
+        new = pd.Series({k: v for k, v in add.items() if k > close.index[-1]}, dtype=float)
+        if len(new):
+            print("以證交所資料補上:", ", ".join(f"{k:%Y-%m-%d}={v:,.2f}" for k, v in new.items()))
+            close = pd.concat([close, new]).sort_index()
+    except Exception as e:
+        print("證交所補資料失敗(略過):", e)
+    return close
 
 
 def streak(flag):
@@ -79,7 +105,10 @@ def section(name, d, n, first):
 def main():
     secs = []
     for i, (name, sym, n) in enumerate(INDICES):
-        secs.append(section(name, analyze(load(sym), n), n, i == 0))
+        close = load(sym)
+        if sym == "^TWII":
+            close = patch_twse(close)
+        secs.append(section(name, analyze(close, n), n, i == 0))
     now = datetime.now(timezone(timedelta(hours=8)))
     page = f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>指數 MA 通道與訊號</title>

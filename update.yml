@@ -2,6 +2,7 @@ name: Update charts
 on:
   schedule:
     - cron: "30 22 * * *"   # 每天 UTC 22:30 = 台北 06:30(美股、台股都已收盤)
+    - cron: "30 7 * * 1-5"    # 週一至週五 UTC 07:30 = 台北 15:30(台股收盤後再更新一次)
   workflow_dispatch:
 permissions:
   contents: write
