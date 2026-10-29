@@ -128,8 +128,24 @@ def section(name, d, n, first, ohlc, src):
 <table><tr><th>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th></tr>{o_rows}</table></section>"""
 
 
+def summary_row(name, d, n):
+    last = d.iloc[-1]
+    state = (f"連續 {int(last.ua)} 天站上 MA+{UP_BAND:.0%}" if last.ua > 0 else
+             f"連續 {int(last.ub)} 天跌破 MA-{DN_BAND:.0%}" if last.ub > 0 else "通道內")
+    sigs = d[d.signal != ""]
+    if len(sigs):
+        t, r = sigs.index[-1], sigs.iloc[-1]
+        cls = "buy" if r.signal == "買進" else "sell"
+        new = "(今日新訊號)" if t == d.index[-1] else ""
+        sig = f"<td class='{cls}'>{r.signal}</td><td>{t:%Y-%m-%d}{new}</td>"
+    else:
+        sig = "<td>—</td><td>近三年無訊號</td>"
+    return (f"<tr><td>{name}</td><td>{d.index[-1]:%Y-%m-%d}</td><td>{last.close:,.2f}</td><td>MA{n} {last.ma:,.2f}</td>"
+            f"<td>{(last.close / last.ma - 1) * 100:+.2f}%</td><td>{state}</td>{sig}</tr>")
+
+
 def main():
-    secs = []
+    secs, summ = [], []
     for i, (name, sym, n) in enumerate(INDICES):
         ohlc, src = load(sym), "Yahoo Finance"
         if sym == "^TWII":                                   # 台股以證交所為主:證交所有的日期一律覆蓋 Yahoo
@@ -138,7 +154,9 @@ def main():
                 ohlc = pd.concat([ohlc[~ohlc.index.isin(tw.index)], tw]).sort_index()
                 src = "臺灣證券交易所"
                 print("證交所資料:", f"{tw.index[0]:%Y-%m-%d} ~ {tw.index[-1]:%Y-%m-%d}")
-        secs.append(section(name, analyze(ohlc["Close"], n), n, i == 0, ohlc, src))
+        d = analyze(ohlc["Close"], n)
+        summ.append(summary_row(name, d, n))
+        secs.append(section(name, d, n, i == 0, ohlc, src))
     now = datetime.now(timezone(timedelta(hours=8)))
     page = f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>指數 MA 通道與訊號</title>
@@ -146,9 +164,11 @@ def main():
 section{{margin-bottom:40px}}.status{{background:#f4f6f8;padding:8px 12px;border-radius:6px;font-size:14px}}
 table{{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}}th,td{{padding:5px 10px;border-bottom:1px solid #e3e3e3;text-align:right}}
 th:first-child,td:first-child{{text-align:left}}tr.buy td:nth-child(2){{color:#d9534f;font-weight:700}}
-tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}h3{{margin:18px 0 0;font-size:15px}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
+tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}h3{{margin:18px 0 0;font-size:15px}}.sum td.buy{{color:#d9534f;font-weight:700}}.sum td.sell{{color:#2e9e5b;font-weight:700}}.sum td:nth-child(n+6){{text-align:left}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
 @media(prefers-color-scheme:dark){{body{{background:#14161a;color:#e6e6e6}}.status{{background:#22262d}}td,th{{border-color:#333}}}}</style></head>
 <body><h1>指數 MA 通道與買賣訊號</h1>
+<h2>最新匯總</h2>
+<table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
 <p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
