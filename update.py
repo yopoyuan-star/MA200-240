@@ -166,8 +166,10 @@ section{{margin-bottom:40px}}.status{{background:#f4f6f8;padding:8px 12px;border
 table{{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}}th,td{{padding:5px 10px;border-bottom:1px solid #e3e3e3;text-align:right}}
 th:first-child,td:first-child{{text-align:left}}tr.buy td:nth-child(2){{color:#d9534f;font-weight:700}}
 tr.sell td:nth-child(2){{color:#2e9e5b;font-weight:700}}h3{{margin:18px 0 0;font-size:15px}}.sum td.buy{{color:#d9534f;font-weight:700}}.sum td.sell{{color:#2e9e5b;font-weight:700}}.sum td:nth-child(n+6){{text-align:left}}summary{{cursor:pointer;margin-top:8px;font-weight:600}}
-@media(prefers-color-scheme:dark){{body{{background:#14161a;color:#e6e6e6}}.status{{background:#22262d}}td,th{{border-color:#333}}}}</style></head>
-<body><h1>指數 MA 通道與買賣訊號</h1>
+nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{padding:7px 14px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none}}nav span{{background:#222;color:#fff}}nav a{{background:#eef1f5;color:#1a5fb4}}
+@media(prefers-color-scheme:dark){{nav span{{background:#e6e6e6;color:#14161a}}nav a{{background:#22262d;color:#8ab4f8}}body{{background:#14161a;color:#e6e6e6}}.status{{background:#22262d}}td,th{{border-color:#333}}}}</style></head>
+<body><nav><span>📊 MA200-240 均線訊號</span><a href="https://yopoyuan-star.github.io/Z-score/zscore.html">📈 Z-SCORE 與動態 KD(台股) →</a></nav>
+<h1>指數 MA 通道與買賣訊號</h1>
 <h2>最新匯總</h2>
 <table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
 <p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股 MA200,美股 MA240。<br>
