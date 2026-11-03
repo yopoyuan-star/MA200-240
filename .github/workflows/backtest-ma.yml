@@ -1,0 +1,13 @@
+name: backtest-ma
+on: workflow_dispatch
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pandas numpy
+      - run: python bt_ma.py | tee ma_backtest_result.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: ma-backtest, path: "ma_backtest_result.*" }
