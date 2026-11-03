@@ -6,11 +6,22 @@ import sys, json, urllib.request, pandas as pd, numpy as np
 UP, DN, DAYS, MAS = 0.02, 0.01, 3, (200, 220, 240)
 
 def yahoo(sym):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=max&interval=1d"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    r = json.load(urllib.request.urlopen(req, timeout=60))["chart"]["result"][0]
-    s = pd.Series(r["indicators"]["quote"][0]["close"], index=pd.to_datetime(r["timestamp"], unit="s").normalize(), dtype=float)
-    return s[~s.index.duplicated()].dropna()
+    import time
+    for host in ("query1", "query2"):
+        # period1/period2 明確指定,避免 range=max 被 Yahoo 自動降成月資料
+        url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{sym}?period1=0&period2={int(time.time())}&interval=1d&events=history"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            r = json.load(urllib.request.urlopen(req, timeout=60))["chart"]["result"][0]
+            s = pd.Series(r["indicators"]["quote"][0]["close"], index=pd.to_datetime(r["timestamp"], unit="s").normalize(), dtype=float)
+            s = s[~s.index.duplicated()].dropna()
+            gap = s.index.to_series().diff().dt.days.median()
+            print(f"{sym}: {len(s)} 筆 {s.index[0]:%Y-%m-%d}~{s.index[-1]:%Y-%m-%d} 中位間隔 {gap} 天")
+            if gap <= 4: return s
+            print("  資料不是日資料,換下一個主機重試")
+        except Exception as e:
+            print(f"  {host} 失敗: {e}")
+    raise SystemExit(f"{sym} 抓不到日資料")
 
 def streak(f):
     g = (f != f.shift()).cumsum()
@@ -69,6 +80,8 @@ if __name__ == "__main__":
     out = []
     for name, c in sets.items():
         for start in (None, "2000-01-01", "2010-01-01"):
+            cc = c if not start else c[c.index >= start]
+            if len(cc) < max(MAS) + 250: print(f"{name} 自{start} 資料不足,略過"); continue
             df = report(name + ("" if not start else f"(自{start[:4]})"), c, start)
             df.insert(0, "區間", name + ("" if not start else f"(自{start[:4]})")); out.append(df)
     pd.concat(out).to_csv("ma_backtest_result.csv", encoding="utf-8-sig")
