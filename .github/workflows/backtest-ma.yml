@@ -1,5 +1,10 @@
 name: backtest-ma
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "jk=日韓, us=美股四大指數"
+        default: "us"
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -8,6 +13,6 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install pandas numpy
-      - run: python bt_ma.py | tee ma_backtest_result.txt
+      - run: python bt_ma.py ${{ github.event.inputs.set }} | tee ma_backtest_result.txt
       - uses: actions/upload-artifact@v4
         with: { name: ma-backtest, path: "ma_backtest_result.*" }
