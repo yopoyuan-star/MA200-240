@@ -55,13 +55,15 @@ def stats(r, pos, c):
                 勝率=(np.mean([t > 0 for t in tr]) if tr else np.nan), 持有時間比=pos.mean(),
                 報酬回撤比=(eq.iloc[-1] ** (1 / yrs) - 1) / abs(dd) if dd else np.nan)
 
-def report(name, c, start=None):
-    if start: c = c[c.index >= start]
-    rows = {}; w = c.index[max(MAS)]                              # 三條均線同一起點(最長均線暖機後)才公平
-    cw = c[c.index >= w]
-    bh = cw.pct_change().fillna(0); rows["買進持有"] = stats(bh, pd.Series(1.0, index=cw.index), cw)
+def report(name, c, start=None, end=None):
+    """均線用完整歷史計算(不因切區間而重新暖機),再只統計指定區間。全期間則自最長均線暖機後起算。"""
+    w = c.index[max(MAS)]
+    lo = max(pd.Timestamp(start), w) if start else w
+    m = (c.index >= lo) & ((c.index < pd.Timestamp(end)) if end else True)
+    cw = c[m]; rows = {}
+    rows["買進持有"] = stats(cw.pct_change().fillna(0), pd.Series(1.0, index=cw.index), cw)
     for n in MAS:
-        r, pos = run(c, n); rows[f"MA{n}"] = stats(r[r.index >= w], pos[pos.index >= w], cw)
+        r, pos = run(c, n); rows[f"MA{n}"] = stats(r[m], pos[m], cw)
     c = cw
     df = pd.DataFrame(rows).T
     print(f"\n===== {name}  {c.index[0]:%Y-%m-%d} ~ {c.index[-1]:%Y-%m-%d} =====")
@@ -72,16 +74,22 @@ def report(name, c, start=None):
     return df
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        d = pd.read_csv(sys.argv[1]); d.columns = [x.strip() for x in d.columns]
-        col = "Close" if "Close" in d.columns else d.columns[1]; c = pd.Series(d[col].astype(float).values, index=pd.to_datetime(d.iloc[:, 0])); sets = {sys.argv[1]: c}
+    SETS = {"jk": {"日經225 ^N225": "%5EN225", "韓國 KOSPI ^KS11": "%5EKS11"},
+            "us": {"道瓊 ^DJI": "%5EDJI", "S&P500 ^GSPC": "%5EGSPC", "那斯達克 ^IXIC": "%5EIXIC", "費城半導體 ^SOX": "%5ESOX"}}
+    a = sys.argv[1] if len(sys.argv) > 1 else "jk"
+    if a in SETS: sets = {k: yahoo(v) for k, v in SETS[a].items()}
     else:
-        sets = {"日經225 ^N225": yahoo("%5EN225"), "韓國 KOSPI ^KS11": yahoo("%5EKS11")}
+        d = pd.read_csv(a); d.columns = [x.strip() for x in d.columns]
+        col = "Close" if "Close" in d.columns else d.columns[1]
+        sets = {a: pd.Series(d[col].astype(float).values, index=pd.to_datetime(d.iloc[:, 0]))}
+    last = lambda c: c.index[-1]
     out = []
     for name, c in sets.items():
-        for start in (None, "2000-01-01", "2010-01-01"):
-            cc = c if not start else c[c.index >= start]
-            if len(cc) < max(MAS) + 250: print(f"{name} 自{start} 資料不足,略過"); continue
-            df = report(name + ("" if not start else f"(自{start[:4]})"), c, start)
-            df.insert(0, "區間", name + ("" if not start else f"(自{start[:4]})")); out.append(df)
+        cut = last(c) - pd.DateOffset(years=10)                      # 近 10 年 / 之前
+        for label, st, en in (("全期間", None, None), ("2000後", "2000-01-01", None), ("10年前", None, cut), ("近10年", cut, None)):
+            cc = c
+            if st: cc = cc[cc.index >= st]
+            if en: cc = cc[cc.index < en]
+            if len(cc) < max(MAS) + 250: print(f"{name} {label} 資料不足,略過"); continue
+            df = report(f"{name} {label}", c, st, en); df.insert(0, "區間", f"{name} {label}"); out.append(df)
     pd.concat(out).to_csv("ma_backtest_result.csv", encoding="utf-8-sig")
