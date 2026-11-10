@@ -17,6 +17,17 @@ INDICES = [
 ]
 UP_BAND, DN_BAND = 0.02, 0.01   # 進場:高於 MA+2%;出場:低於 MA-1%
 DAYS, YEARS = 3, 3
+SLOPE_DAYS, FLAT = 20, 0.005    # 均線方向:MA 與 20 個交易日前相比 > +0.5% 上彎、< −0.5% 下彎,其餘走平
+
+
+def ma_trend(d, n):
+    """回傳 (文字, 顏色, 說明)"""
+    ma = d.ma.dropna()
+    if len(ma) <= SLOPE_DAYS:
+        return "—", "inherit", ""
+    sl = ma.iloc[-1] / ma.iloc[-1 - SLOPE_DAYS] - 1
+    txt, col = ("↗上彎", "#d9534f") if sl > FLAT else ("↘下彎", "#2e9e5b") if sl < -FLAT else ("→走平", "#888")
+    return txt, col, f"MA{n} 近 {SLOPE_DAYS} 個交易日 {sl * 100:+.2f}%"
 
 
 def load(sym):
@@ -111,6 +122,7 @@ def section(name, d, n, first, ohlc, src):
         state = f"已連續 {int(last.ub)} 天跌破 MA-{DN_BAND:.0%}"
     else:
         state = f"位於 MA-{DN_BAND:.0%} ~ MA+{UP_BAND:.0%} 通道內"
+    tt, tc, tn = ma_trend(d, n)
     sigs = d[d.signal != ""].iloc[::-1]
     rows = "".join(
         f"<tr class='{'buy' if r.signal == '買進' else 'sell'}'><td>{i:%Y-%m-%d}</td>"
@@ -121,7 +133,7 @@ def section(name, d, n, first, ohlc, src):
     chart = figure(d, f"{name}(MA{n} +{UP_BAND:.0%} / -{DN_BAND:.0%})", n).to_html(
         full_html=False, include_plotlyjs="cdn" if first else False)
     return f"""<section><h2>{name}</h2>
-<div class='status'>{d.index[-1]:%Y-%m-%d} 收盤 {last.close:,.2f}|MA{n} {last.ma:,.2f}|乖離 {dev:+.2f}%|<b>{state}</b></div>
+<div class='status'>{d.index[-1]:%Y-%m-%d} 收盤 {last.close:,.2f}|MA{n} {last.ma:,.2f}|乖離 {dev:+.2f}%|<b>{state}</b>|均線 <b style='color:{tc}'>{tt}</b>({tn})</div>
 {chart}
 <details open><summary>買賣訊號(共 {len(sigs)} 筆,新到舊)</summary>
 <table><tr><th>日期</th><th>訊號</th><th>收盤</th><th>MA</th></tr>{rows}</table></details>
@@ -141,8 +153,9 @@ def summary_row(name, d, n):
         sig = f"<td class='{cls}'>{r.signal}</td><td>{t:%Y-%m-%d}{new}</td>"
     else:
         sig = "<td>—</td><td>近三年無訊號</td>"
+    tt, tc, tn = ma_trend(d, n)
     return (f"<tr><td>{name}</td><td>{d.index[-1]:%Y-%m-%d}</td><td>{last.close:,.2f}</td><td>MA{n} {last.ma:,.2f}</td>"
-            f"<td>{(last.close / last.ma - 1) * 100:+.2f}%</td><td>{state}</td>{sig}</tr>")
+            f"<td>{(last.close / last.ma - 1) * 100:+.2f}%</td><td title='{tn}' style='color:{tc};font-weight:700'>{tt}</td><td>{state}</td>{sig}</tr>")
 
 
 def main():
@@ -171,8 +184,8 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{paddin
 <body><nav><span>📊 MA220/240 均線訊號</span><a href="https://yopoyuan-star.github.io/Z-score/zscore.html">📈 Z-SCORE 與動態 KD(台股) →</a></nav>
 <h1>指數 MA 通道與買賣訊號</h1>
 <h2>最新匯總</h2>
-<table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
-<p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。<br>
+<table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>均線方向</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
+<p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
     os.makedirs("docs", exist_ok=True)
