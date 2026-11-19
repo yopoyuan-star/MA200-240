@@ -1,4 +1,4 @@
-"""抓取台股加權指數與美股三大指數,計算 MA 通道(進場 +2%、出場 -1%)與連續 3 日訊號,輸出 docs/index.html"""
+"""抓取台股加權指數與美股三大指數,計算 MA 通道(進場 +2%、出場 -1%)與當日收盤訊號,輸出 docs/index.html"""
 import json
 import os
 import urllib.request
@@ -16,7 +16,7 @@ INDICES = [
     ("費城半導體指數 SOX", "^SOX", 220),
 ]
 UP_BAND, DN_BAND = 0.02, 0.01   # 進場:高於 MA+2%;出場:低於 MA-1%
-DAYS, YEARS = 3, 3
+DAYS, YEARS = 1, 3      # DAYS=1:收盤一站上 +2% / 跌破 −1% 當天就是訊號,隔天收盤買賣(2026-11 回測台股優於連 3 天)
 SLOPE_DAYS, FLAT = 20, 0.005    # 均線方向:MA 與 20 個交易日前相比 > +0.5% 上彎、< −0.5% 下彎,其餘走平
 
 
@@ -95,8 +95,8 @@ def analyze(close, n):
     d["ua"] = streak(d.close > d.up)
     d["ub"] = streak(d.close < d.dn)
     d["signal"] = ""
-    d.loc[d.ua == DAYS, "signal"] = "買進"      # 連續第 3 天站上 MA+2%
-    d.loc[d.ub == DAYS, "signal"] = "賣出"      # 連續第 3 天跌破 MA-1%
+    d.loc[d.ua == DAYS, "signal"] = "買進"      # 收盤站上 MA+2% 的第一天
+    d.loc[d.ub == DAYS, "signal"] = "賣出"      # 收盤跌破 MA-1% 的第一天
     return d[d.index >= d.index[-1] - pd.DateOffset(years=YEARS)]
 
 
@@ -185,7 +185,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{paddin
 <h1>指數 MA 通道與買賣訊號</h1>
 <h2>最新匯總</h2>
 <table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>均線方向</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
-<p>規則:收盤連續 3 天高於 MA×{1 + UP_BAND:.2f} → 買進;連續 3 天低於 MA×{1 - DN_BAND:.2f} → 賣出(於第 3 天觸發一次)。台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
+<p>規則:收盤高於 MA×{1 + UP_BAND:.2f} → 買進;收盤低於 MA×{1 - DN_BAND:.2f} → 賣出(收盤確認當天即為訊號,隔天收盤成交;每次跨越觸發一次)。台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
     os.makedirs("docs", exist_ok=True)
