@@ -185,7 +185,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{paddin
 <h1>指數 MA 通道與買賣訊號</h1>
 <h2>最新匯總</h2>
 <table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>均線方向</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
-<p>規則:收盤高於 MA×{1 + UP_BAND:.2f} → 買進;收盤低於 MA×{1 - DN_BAND:.2f} → 賣出(收盤確認當天即為訊號,隔天收盤成交;每次跨越觸發一次)。台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
+<p><span style="display:inline-block;background:#fff3c4;border-left:5px solid #f0a500;border-radius:6px;padding:6px 12px;font-weight:700;color:#5a3d00">📌 規則:收盤高於 MA×{1 + UP_BAND:.2f} → 買進;收盤低於 MA×{1 - DN_BAND:.2f} → 賣出(收盤確認當天即為訊號,隔天收盤成交;每次跨越觸發一次)。</span><br>台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
     os.makedirs("docs", exist_ok=True)
