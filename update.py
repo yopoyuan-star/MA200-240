@@ -18,6 +18,7 @@ INDICES = [
 UP_BAND, DN_BAND = 0.02, 0.01   # 進場:高於 MA+2%;出場:低於 MA-1%
 DAYS, YEARS = 3, 3      # 美股:連 3 天收盤站上 +2% / 跌破 −1% 才是訊號(2026-11 回測美股連 3 天較佳)
 DAYS_BY_SYM = {"^TWII": 1}   # 台股:收盤當天就是訊號(2026-11 回測台股當天較佳);隔天收盤買賣
+DN_BY_SYM = {"^TWII": 0.015}  # 台股:跌破 MA-1.5% 賣出(2026-11 回測當天訊號下 −1.5% 各期間不輸 −1%);美股維持 −1%
 SLOPE_DAYS, FLAT = 20, 0.005    # 均線方向:MA 與 20 個交易日前相比 > +0.5% 上彎、< −0.5% 下彎,其餘走平
 
 
@@ -89,22 +90,24 @@ def streak(flag):
     return flag.groupby((~flag).cumsum()).cumsum()
 
 
-def analyze(close, n, days=DAYS):
+def analyze(close, n, days=DAYS, dn=DN_BAND):
     d = pd.DataFrame({"close": close})
     d["ma"] = close.rolling(n).mean()          # 用完整資料算 MA,再截取近三年
-    d["up"], d["dn"] = d.ma * (1 + UP_BAND), d.ma * (1 - DN_BAND)
+    d["up"], d["dn"] = d.ma * (1 + UP_BAND), d.ma * (1 - dn)
     d["ua"] = streak(d.close > d.up)
     d["ub"] = streak(d.close < d.dn)
     d["signal"] = ""
     d.loc[d.ua == days, "signal"] = "買進"      # 第 days 天站上 MA+2%(台股 1、美股 3)
-    d.loc[d.ub == days, "signal"] = "賣出"      # 第 days 天跌破 MA-1%
-    return d[d.index >= d.index[-1] - pd.DateOffset(years=YEARS)]
+    d.loc[d.ub == days, "signal"] = "賣出"      # 第 days 天跌破 MA-dn
+    d = d[d.index >= d.index[-1] - pd.DateOffset(years=YEARS)].copy()
+    d.attrs["dn"] = dn
+    return d
 
 
 def figure(d, title, n):
     f = go.Figure()
-    f.add_scatter(x=d.index, y=d.up, name=f"MA{n}+{UP_BAND:.0%}", line=dict(color="#d9534f", width=1, dash="dot"))
-    f.add_scatter(x=d.index, y=d.dn, name=f"MA{n}-{DN_BAND:.0%}", line=dict(color="#2e9e5b", width=1, dash="dot"),
+    f.add_scatter(x=d.index, y=d.up, name=f"MA{n}+{UP_BAND * 100:g}%", line=dict(color="#d9534f", width=1, dash="dot"))
+    f.add_scatter(x=d.index, y=d.dn, name=f"MA{n}-{d.attrs['dn'] * 100:g}%", line=dict(color="#2e9e5b", width=1, dash="dot"),
                   fill="tonexty", fillcolor="rgba(150,150,150,0.10)")
     f.add_scatter(x=d.index, y=d.ma, name=f"MA{n}", line=dict(color="#f0ad4e", width=1.6))
     f.add_scatter(x=d.index, y=d.close, name="收盤", line=dict(color="#1f77b4", width=1.6))
@@ -118,11 +121,11 @@ def section(name, d, n, first, ohlc, src):
     last = d.iloc[-1]
     dev = (last.close / last.ma - 1) * 100
     if last.ua > 0:
-        state = f"已連續 {int(last.ua)} 天站上 MA+{UP_BAND:.0%}"
+        state = f"已連續 {int(last.ua)} 天站上 MA+{UP_BAND * 100:g}%"
     elif last.ub > 0:
-        state = f"已連續 {int(last.ub)} 天跌破 MA-{DN_BAND:.0%}"
+        state = f"已連續 {int(last.ub)} 天跌破 MA-{d.attrs['dn'] * 100:g}%"
     else:
-        state = f"位於 MA-{DN_BAND:.0%} ~ MA+{UP_BAND:.0%} 通道內"
+        state = f"位於 MA-{d.attrs['dn'] * 100:g}% ~ MA+{UP_BAND * 100:g}% 通道內"
     tt, tc, tn = ma_trend(d, n)
     sigs = d[d.signal != ""].iloc[::-1]
     rows = "".join(
@@ -131,7 +134,7 @@ def section(name, d, n, first, ohlc, src):
         for i, r in sigs.iterrows()) or "<tr><td colspan=4>近三年無訊號</td></tr>"
     o_rows = "".join(f"<tr><td>{i:%Y-%m-%d}</td><td>{r.Open:,.2f}</td><td>{r.High:,.2f}</td><td>{r.Low:,.2f}</td><td>{r.Close:,.2f}</td></tr>"
                      for i, r in ohlc.tail(7).iterrows())
-    chart = figure(d, f"{name}(MA{n} +{UP_BAND:.0%} / -{DN_BAND:.0%})", n).to_html(
+    chart = figure(d, f"{name}(MA{n} +{UP_BAND * 100:g}% / -{d.attrs['dn'] * 100:g}%)", n).to_html(
         full_html=False, include_plotlyjs="cdn" if first else False)
     return f"""<section><h2>{name}</h2>
 <div class='status'>{d.index[-1]:%Y-%m-%d} 收盤 {last.close:,.2f}|MA{n} {last.ma:,.2f}|乖離 {dev:+.2f}%|<b>{state}</b>|均線 <b style='color:{tc}'>{tt}</b>({tn})</div>
@@ -144,8 +147,8 @@ def section(name, d, n, first, ohlc, src):
 
 def summary_row(name, d, n):
     last = d.iloc[-1]
-    state = (f"連續 {int(last.ua)} 天站上 MA+{UP_BAND:.0%}" if last.ua > 0 else
-             f"連續 {int(last.ub)} 天跌破 MA-{DN_BAND:.0%}" if last.ub > 0 else "通道內")
+    state = (f"連續 {int(last.ua)} 天站上 MA+{UP_BAND * 100:g}%" if last.ua > 0 else
+             f"連續 {int(last.ub)} 天跌破 MA-{d.attrs['dn'] * 100:g}%" if last.ub > 0 else "通道內")
     sigs = d[d.signal != ""]
     if len(sigs):
         t, r = sigs.index[-1], sigs.iloc[-1]
@@ -169,7 +172,7 @@ def main():
                 ohlc = pd.concat([ohlc[~ohlc.index.isin(tw.index)], tw]).sort_index()
                 src = "臺灣證券交易所"
                 print("證交所資料:", f"{tw.index[0]:%Y-%m-%d} ~ {tw.index[-1]:%Y-%m-%d}")
-        d = analyze(ohlc["Close"], n, DAYS_BY_SYM.get(sym, DAYS))
+        d = analyze(ohlc["Close"], n, DAYS_BY_SYM.get(sym, DAYS), DN_BY_SYM.get(sym, DN_BAND))
         summ.append(summary_row(name, d, n))
         secs.append(section(name, d, n, i == 0, ohlc, src))
     now = datetime.now(timezone(timedelta(hours=8)))
@@ -186,7 +189,7 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{paddin
 <h1>指數 MA 通道與買賣訊號</h1>
 <h2>最新匯總</h2>
 <table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>均線方向</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
-<p><span style="display:inline-block;background:#fff3c4;border-left:5px solid #f0a500;border-radius:6px;padding:6px 12px;font-weight:700;color:#5a3d00;line-height:1.8">📌 規則:收盤高於 MA×{1 + UP_BAND:.2f} → 買進;收盤低於 MA×{1 - DN_BAND:.2f} → 賣出。<span style="background:#fde2e1;color:#b3261e;border:1px solid #f1a9a5;border-radius:5px;padding:1px 8px">台股:收盤確認當天即為訊號</span>　<span style="background:#dbe9fb;color:#1a56a8;border:1px solid #a9c7ef;border-radius:5px;padding:1px 8px">美股:連續 {DAYS} 天才是訊號</span>　隔天收盤下單,每次跨越觸發一次。</span><br>台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
+<p><span style="display:inline-block;background:#fff3c4;border-left:5px solid #f0a500;border-radius:6px;padding:6px 12px;font-weight:700;color:#5a3d00;line-height:1.8">📌 規則:收盤高於 MA×{1 + UP_BAND:.4g} → 買進;收盤低於下緣 → 賣出。<span style="background:#fde2e1;color:#b3261e;border:1px solid #f1a9a5;border-radius:5px;padding:1px 8px">台股:下緣 MA×{1 - DN_BY_SYM['^TWII']:.4g},收盤確認當天即為訊號</span>　<span style="background:#dbe9fb;color:#1a56a8;border:1px solid #a9c7ef;border-radius:5px;padding:1px 8px">美股:下緣 MA×{1 - DN_BAND:.4g},連續 {DAYS} 天才是訊號</span>　隔天收盤下單,每次跨越觸發一次。</span><br>台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
 {''.join(secs)}</body></html>"""
     os.makedirs("docs", exist_ok=True)
