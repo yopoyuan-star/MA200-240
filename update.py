@@ -191,7 +191,24 @@ nav{{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}}nav span,nav a{{paddin
 <table class=sum><tr><th>指數</th><th>日期</th><th>收盤</th><th>MA</th><th>乖離</th><th>均線方向</th><th>目前狀態</th><th>最近訊號</th><th>訊號日期</th></tr>{''.join(summ)}</table>
 <p><span style="display:inline-block;background:#fff3c4;border-left:5px solid #f0a500;border-radius:6px;padding:6px 12px;font-weight:700;color:#5a3d00;line-height:1.8">📌 規則:收盤高於 MA×{1 + UP_BAND:.4g} → 買進;收盤低於下緣 → 賣出。<span style="background:#fde2e1;color:#b3261e;border:1px solid #f1a9a5;border-radius:5px;padding:1px 8px">台股:下緣 MA×{1 - DN_BY_SYM['^TWII']:.4g},收盤確認當天即為訊號</span>　<span style="background:#dbe9fb;color:#1a56a8;border:1px solid #a9c7ef;border-radius:5px;padding:1px 8px">美股:下緣 MA×{1 - DN_BAND:.4g},連續 {DAYS} 天才是訊號</span>　隔天收盤下單,每次跨越觸發一次。</span><br>台股、道瓊、S&P 500、費半 MA220,那斯達克 MA240(依回測選用)。均線方向:MA 與 {SLOPE_DAYS} 個交易日前相比 > +{FLAT:.1%} 上彎、< −{FLAT:.1%} 下彎,其餘走平(滑鼠移到方向上可看實際變化)。<br>
 更新時間:{now:%Y-%m-%d %H:%M}(台北時間)|資料來源:台股為臺灣證券交易所(近 3 個月)搭配 Yahoo 歷史資料,美股為 Yahoo Finance|僅供參考,非投資建議。</p>
-{''.join(secs)}</body></html>"""
+{''.join(secs)}
+<div id=tipbox style="display:none;position:fixed;left:8px;right:8px;bottom:12px;z-index:9999;background:#222;color:#fff;font-size:14px;line-height:1.55;padding:10px 12px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35);white-space:pre-line"></div>
+<script>
+(function(){{
+  var box=document.getElementById('tipbox');
+  if(!(('ontouchstart' in window)||navigator.maxTouchPoints>0)) return;
+  document.querySelectorAll('[title]').forEach(function(el){{
+    if(el.closest('a,button,input,select,textarea')) return;
+    el.setAttribute('data-tip',el.getAttribute('title')); el.removeAttribute('title'); el.style.cursor='pointer';
+    if(/^(B|SPAN|SMALL|TD)$/.test(el.tagName)){{ el.style.textDecoration='underline dotted'; el.style.textUnderlineOffset='3px'; }}
+  }});
+  document.addEventListener('click',function(e){{
+    var el=e.target.closest('[data-tip]');
+    if(el && !e.target.closest('#tipbox')){{ box.textContent=el.getAttribute('data-tip').replace(/;/g,'\\n'); box.style.display='block'; e.stopPropagation(); return; }}
+    box.style.display='none';
+  }});
+}})();
+</script></body></html>"""
     os.makedirs("docs", exist_ok=True)
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(page)
